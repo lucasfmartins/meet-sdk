@@ -1,0 +1,70 @@
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: CI Workflow
+
+on:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    name: Build and Run Unit Tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [12.x]
+
+    steps:
+      - name: Checkout Package
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Clean Install
+        run: npm ci
+      - name: Build
+        run: npm run build:release --if-present
+      
+  require-snapshot-test:
+    name: Check if Snapshot Tests are required
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+    strategy:
+      matrix:
+        node-version: [12.x]
+    steps:
+      - name: Checkout Package
+        uses: actions/checkout@v2
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Clean Install
+        run: npm ci
+      - name: Fetch all changed files
+        id: files
+        uses: jitterbit/get-changed-files@v1
+      - name: Check if snapshot tests are needed
+        id: test_needed
+        run: |
+          for changed_file in ${{ steps.files.outputs.all }}; do
+            if [[ $changed_file == *.tsx ]] || [[ $changed_file == *.ts ]]
+            then
+              echo '::set-output name=snapshot_test_required::true'
+            else
+              echo '::set-output name=snapshot_test_required::false'
+            fi
+          done
+
+      - name: Run Snapshot tests
+        if:  steps.test_needed.outputs.snapshot_test_required == 'true'
+        run: npm run test:snapshots
+        env:
+          WAIT_ON_TIMEOUT: 1200000
